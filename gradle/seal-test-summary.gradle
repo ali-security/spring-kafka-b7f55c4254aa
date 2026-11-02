@@ -1,0 +1,22 @@
+// Prints per-class and per-project test result summaries to the build log.
+// Uses logger.lifecycle because build.gradle captures test stdout at INFO.
+allprojects {
+	tasks.withType(Test).configureEach { t ->
+		t.testLogging {
+			events 'skipped', 'failed'
+			exceptionFormat 'full'
+		}
+		t.afterSuite { desc, result ->
+			if (desc.parent == null) {
+				t.logger.lifecycle("SEAL TEST SUMMARY ${t.project.path}: ${result.testCount} tests, " +
+						"${result.successfulTestCount} passed, ${result.failedTestCount} failed, " +
+						"${result.skippedTestCount} skipped (${result.resultType})")
+			}
+			else if (desc.className != null && desc.name == desc.className) {
+				t.logger.lifecycle("SEAL TEST CLASS ${desc.className}: ${result.testCount} tests, " +
+						"${result.successfulTestCount} passed, ${result.failedTestCount} failed, " +
+						"${result.skippedTestCount} skipped")
+			}
+		}
+	}
+}
