@@ -19,7 +19,9 @@ package org.springframework.kafka.support;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +70,21 @@ public class DefaultKafkaHeaderMapper extends AbstractKafkaHeaderMapper {
 					"java.util",
 					"org.springframework.util"
 			);
+
+	/**
+	 * Types that are never trusted for header deserialization, even when their package is
+	 * trusted, because constructing them from an untrusted header value has a network side
+	 * effect. For example, deserializing a {@code java.net.InetAddress} calls
+	 * {@code InetAddress.getByName()}, which performs a DNS lookup during deserialization.
+	 * Such headers are returned to the application as a {@link NonTrustedHeaderType}.
+	 */
+	private static final Set<String> UNTRUSTED_TYPES = Collections.unmodifiableSet(new HashSet<>(
+			Arrays.asList(
+					"java.net.InetAddress",
+					"java.net.Inet4Address",
+					"java.net.Inet6Address",
+					"java.net.InetSocketAddress"
+			)));
 
 	private static final List<String> DEFAULT_TO_STRING_CLASSES =
 			Arrays.asList(
@@ -198,8 +215,15 @@ public class DefaultKafkaHeaderMapper extends AbstractKafkaHeaderMapper {
 
 	/**
 	 * Add packages to the trusted packages list (default {@code java.util, java.lang}) used
-	 * when constructing objects from JSON.
+	 * when constructing objects from JSON. Trust is by
+	 * exact package match; a class is trusted only if
+	 * its declaring package appears in this list.
+	 * Subpackages are not trusted transitively, but add
+	 * them explicitly if needed.
 	 * If any of the supplied packages is {@code "*"}, all packages are trusted.
+	 * {@code java.net.InetAddress}, {@code java.net.Inet4Address},
+	 * {@code java.net.Inet6Address} and {@code java.net.InetSocketAddress} are never
+	 * trusted, even when {@code java.net} or {@code "*"} is trusted.
 	 * If a class for a non-trusted package is encountered, the header is returned to the
 	 * application with value of type {@link NonTrustedHeaderType}.
 	 * @param packagesToTrust the packages to trust.
@@ -362,6 +386,9 @@ public class DefaultKafkaHeaderMapper extends AbstractKafkaHeaderMapper {
 		if (requestedType.equals(NonTrustedHeaderType.class.getName())) {
 			return true;
 		}
+		if (UNTRUSTED_TYPES.contains(componentTypeName(requestedType))) {
+			return false;
+		}
 		if (!this.trustedPackages.isEmpty()) {
 			int lastDot = requestedType.lastIndexOf('.');
 			if (lastDot < 0) {
@@ -369,13 +396,26 @@ public class DefaultKafkaHeaderMapper extends AbstractKafkaHeaderMapper {
 			}
 			String packageName = requestedType.substring(0, lastDot);
 			for (String trustedPackage : this.trustedPackages) {
-				if (packageName.equals(trustedPackage) || packageName.startsWith(trustedPackage + ".")) {
+				if (packageName.equals(trustedPackage)) {
 					return true;
 				}
 			}
 			return false;
 		}
 		return true;
+	}
+
+	private static String componentTypeName(String requestedType) {
+		int start = 0;
+		int end = requestedType.length();
+		while (start < end && requestedType.charAt(start) == '[') {
+			start++;
+		}
+		if (start < end && requestedType.charAt(start) == 'L' && requestedType.charAt(end - 1) == ';') {
+			start++;
+			end--;
+		}
+		return requestedType.substring(start, end);
 	}
 
 
